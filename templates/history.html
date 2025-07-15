@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>User History</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container mt-4">
+        <h1>Transaction History for {{ user_id }}</h1>
+        {% if history %}
+            <table class="table table-striped mt-3">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Savings (R)</th>
+                        <th>Loans (R)</th>
+                        <th>Income (R)</th>
+                        <th>Expenses (R)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for record in history %}
+                        {% set date, savings, loans, income, expenses = record[4].split('T')[0], record[0], record[1], record[2], record[3] %}
+                        <tr>
+                            <td>{{ date }}</td>
+                            <td>{{ '{:,.0f}'.format(savings) }}</td>
+                            <td>{{ '{:,.0f}'.format(loans) }}</td>
+                            <td>{{ '{:,.0f}'.format(income) }}</td>
+                            <td>{{ '{:,.0f}'.format(expenses) }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p>No history found for {{ user_id }}.</p>
+        {% endif %}
+        <a href="/" class="btn btn-primary mt-3">Back to Menu</a>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

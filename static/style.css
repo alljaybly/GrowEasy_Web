@@ -1,0 +1,69 @@
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #e8f5e9;
+    color: #1b5e20;
+    margin: 0;
+    padding: 0;
+}
+.navbar {
+    background-color: #2e7d32 !important;
+}
+.navbar-brand, .navbar-nav .nav-link {
+    color: white !important;
+}
+.navbar-nav .nav-link:hover {
+    background-color: #1b5e20;
+    border-radius: 5px;
+}
+.container {
+    padding: 20px;
+    max-width: 100%;
+    margin: 0 auto;
+}
+h1 {
+    color: #2e7d32;
+    border-bottom: 2px solid #2e7d32;
+    padding-bottom: 10px;
+}
+.card {
+    background: #ffffff;
+    border-radius: 10px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    margin-top: 20px;
+}
+.form-control {
+    border-radius: 5px;
+}
+.btn-success {
+    background-color: #4caf50;
+    border: none;
+}
+.btn-success:hover {
+    background-color: #45a049;
+}
+.btn-primary {
+    background-color: #1976d2;
+    border: none;
+}
+.btn-primary:hover {
+    background-color: #1565c0;
+}
+.btn-secondary {
+    background-color: #757575;
+    border: none;
+}
+.btn-secondary:hover {
+    background-color: #616161;
+}
+.lead {
+    font-size: 1.25rem;
+    color: #388e3c;
+}
+@media (max-width: 768px) {
+    .container {
+        padding: 10px;
+    }
+    .navbar-nav {
+        text-align: center;
+    }
+}
