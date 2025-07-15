@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head><title>GrowEasy Result</title></head>
+<body>
+    <h1>Credit Assessment Result</h1>
+    <p>Credit Score: {{ score }}/100</p>
+    <p>Savings: R{{ '{:,.2f}'.format(savings) }}</p>
+    <p>Loans: R{{ '{:,.2f}'.format(loans) }}</p>
+    <p>Income: R{{ '{:,.2f}'.format(income) }}</p>
+    <p>Expenses: R{{ '{:,.2f}'.format(expenses) }}</p>
+    {% if score >= 80 %}
+        <p>🟢 Excellent - Low risk borrower. Approved for loans up to R{{ '{:,.0f}'.format(income * 3 if income > 0 else 1000) }}</p>
+    {% elif score >= 60 %}
+        <p>🟡 Good - Moderate risk borrower. Approved for loans up to R{{ '{:,.0f}'.format(income * 2 if income > 0 else 1000) }}</p>
+    {% elif score >= 40 %}
+        <p>🟠 Fair - Higher risk. Approved for loans up to R{{ '{:,.0f}'.format(income * 1 if income > 0 else 1000) }}</p>
+    {% else %}
+        <p>🔴 Poor - Focus on building savings first. Recommend savings program.</p>
+    {% endif %}
+    <a href="/">Back to Assessment</a>
+</body>
+</html>
