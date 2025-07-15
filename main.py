@@ -175,6 +175,7 @@ def add_user():
 def credit_assessment():
     groweasy = GrowEasy()
     if request.method == 'POST':
+        user_id = request.form['user_id']
         savings = float(request.form['savings'])
         loans = float(request.form['loans'])
         income = float(request.form['income'])
@@ -182,8 +183,8 @@ def credit_assessment():
         if any(x < 0 for x in [savings, loans, income, expenses]):
             return "❌ Error: All values must be non-negative.", 400
         score = groweasy.calculate_credit_score(savings, loans, income, expenses)
-        groweasy.add_transaction("web_user", savings, loans, income, expenses)
-        return render_template('result.html', score=score, savings=savings, loans=loans, income=income, expenses=expenses)
+        groweasy.add_transaction(user_id, savings, loans, income, expenses)
+        return render_template('result.html', score=score, savings=savings, loans=loans, income=income, expenses=expenses, user_id=user_id)
     return render_template('credit_assessment.html')
 
 @app.route('/view_history', methods=['GET', 'POST'])
@@ -192,9 +193,10 @@ def view_history():
     if request.method == 'POST':
         user_id = request.form['user_id']
         history = groweasy.get_user_history(user_id)
+        if not history:
+            return render_template('history.html', history=None, user_id=user_id, message="No history found for this user.")
         return render_template('history.html', history=history, user_id=user_id)
     return render_template('view_history.html')
-
 @app.route('/sync', methods=['GET'])
 def sync():
     groweasy = GrowEasy()

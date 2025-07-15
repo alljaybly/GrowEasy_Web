@@ -9,7 +9,9 @@
 <body>
     <div class="container mt-4">
         <h1>Transaction History for {{ user_id }}</h1>
-        {% if history %}
+        {% if history is none %}
+            <p class="text-warning">{{ message }}</p>
+        {% elif history %}
             <table class="table table-striped mt-3">
                 <thead>
                     <tr>
@@ -34,7 +36,7 @@
                 </tbody>
             </table>
         {% else %}
-            <p>No history found for {{ user_id }}.</p>
+            <p>No history found for this user.</p>
         {% endif %}
         <a href="/" class="btn btn-primary mt-3">Back to Menu</a>
     </div>
