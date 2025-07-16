@@ -43,7 +43,7 @@ class GrowEasy:
             ''')
             conn.commit()
             logging.info("Database schema created or verified")
-        except Exception as e:
+        except psycopg2.Error as e:
             logging.error(f"Database setup error: {e}")
             raise
         finally:
@@ -81,13 +81,17 @@ class GrowEasy:
             cursor.execute('''
                 INSERT INTO users (user_id, name, phone, group_name, created_at)
                 VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (user_id) DO UPDATE SET name = EXCLUDED.name, phone = EXCLUDED.phone, group_name = EXCLUDED.group_name, created_at = EXCLUDED.created_at
+                ON CONFLICT (user_id) DO UPDATE
+                SET name = EXCLUDED.name,
+                    phone = EXCLUDED.phone,
+                    group_name = EXCLUDED.group_name,
+                    created_at = EXCLUDED.created_at
             ''', (user_id, name, phone, group_name, datetime.now().isoformat()))
             conn.commit()
-            logging.info(f"User {name} added successfully")
+            logging.info(f"User {name} added successfully for user_id {user_id}")
             return True
-        except Exception as e:
-            logging.error(f"Error adding user: {e}")
+        except psycopg2.Error as e:
+            logging.error(f"Error adding user {user_id}: {e}")
             return False
         finally:
             conn.close()
@@ -104,8 +108,8 @@ class GrowEasy:
             conn.commit()
             logging.info(f"Transaction added for {user_id}")
             return True
-        except Exception as e:
-            logging.error(f"Error saving transaction: {e}")
+        except psycopg2.Error as e:
+            logging.error(f"Error saving transaction for {user_id}: {e}")
             return False
         finally:
             conn.close()
@@ -124,8 +128,8 @@ class GrowEasy:
             ''', (user_id,))
             history = cursor.fetchall()
             return history
-        except Exception as e:
-            logging.error(f"Error fetching history: {e}")
+        except psycopg2.Error as e:
+            logging.error(f"Error fetching history for {user_id}: {e}")
             return []
         finally:
             conn.close()
@@ -153,7 +157,7 @@ class GrowEasy:
                 f.write(f"{datetime.now().isoformat()}: Synced {unsynced_count} transactions\n")
             print("✅ Sync completed successfully!")
             print(f"📊 {unsynced_count} transactions uploaded to cloud")
-        except Exception as e:
+        except psycopg2.Error as e:
             logging.error(f"Sync error: {e}")
         finally:
             conn.close()
@@ -183,8 +187,10 @@ def add_user():
         name = request.form['name']
         phone = request.form['phone']
         group_name = request.form['group_name']
-        groweasy.add_user(user_id, name, phone, group_name)
-        return render_template('success.html', message=f"User {name} added successfully!")
+        if groweasy.add_user(user_id, name, phone, group_name):
+            return render_template('success.html', message=f"User {name} added successfully!")
+        else:
+            return "❌ Error adding user. Check logs.", 500
     return render_template('add_user.html')
 
 @app.route('/credit_assessment', methods=['GET', 'POST'])
