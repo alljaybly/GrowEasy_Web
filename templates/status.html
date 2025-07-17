@@ -19,8 +19,49 @@
                 <p>AI Model: Rule-based algorithm</p>
             </div>
         </div>
-        <a href="/" class="btn btn-primary mt-3">Back to Menu</a>
+        <div class="chart-container mt-4">
+            <canvas id="memoryChart"></canvas>
+        </div>
     </div>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // Initialize the Chart.js line chart with initial memory usage
+        let memoryChart = new Chart(document.getElementById('memoryChart'), {
+            type: 'line',
+            data: {
+                labels: ['Initial'],
+                datasets: [{
+                    label: 'Memory Usage (MB)',
+                    data: [{{ memory_mb|round(1) }}],
+                    backgroundColor: 'rgba(46, 125, 50, 0.5)',
+                    borderColor: 'rgba(46, 125, 50, 1)',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                scales: { y: { beginAtZero: true } },
+                animation: false
+            }
+        });
+
+        // Fetch new memory data every 5 seconds and update the chart
+        setInterval(() => {
+            fetch('/status_data')
+                .then(response => response.json())
+                .then(data => {
+                    const now = new Date().toLocaleTimeString();
+                    memoryChart.data.labels.push(now);
+                    memoryChart.data.datasets[0].data.push(data.memory_mb);
+                    // Limit chart to last 10 data points
+                    if (memoryChart.data.labels.length > 10) {
+                        memoryChart.data.labels.shift();
+                        memoryChart.data.datasets[0].data.shift();
+                    }
+                    memoryChart.update();
+                })
+                .catch(error => console.error('Error fetching status data:', error));
+        }, 5000);
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
