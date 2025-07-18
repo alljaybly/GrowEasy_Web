@@ -6,6 +6,7 @@ import psycopg2
 import sqlite3
 from flask import Flask, request, render_template, jsonify
 import logging
+import socket
 
 # Configure logging
 logging.basicConfig(filename='groweasy.log', level=logging.INFO)
@@ -15,8 +16,17 @@ class GrowEasy:
         """Initialize GrowEasy with SQLite for offline and Postgres for online"""
         self.db_url = os.environ.get('DATABASE_URL', 'postgresql://groweasy_web_user:DgIu3tONEj7gN7QAyQDPLUo1KkwPpkY8@dpg-d1rvoa6r433s73b875g0-a.oregon-postgres.render.com/groweasy_web')
         self.local_db = 'groweasy_local.db'
+        self.is_online = self.check_internet()
         self.setup_databases()
         print("✅ GrowEasy initialized successfully")
+
+    def check_internet(self):
+        """Check if internet is available"""
+        try:
+            socket.create_connection(("8.8.8.8", 53), timeout=2)
+            return True
+        except (socket.timeout, socket.error):
+            return False
 
     def setup_databases(self):
         """Setup both local SQLite and remote PostgreSQL databases"""
@@ -47,37 +57,38 @@ class GrowEasy:
             conn.commit()
             logging.info("Local SQLite database initialized")
 
-        # Remote Postgres setup (only if online)
-        try:
-            conn = psycopg2.connect(self.db_url)
-            cursor = conn.cursor()
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS transactions (
-                    id SERIAL PRIMARY KEY,
-                    user_id TEXT NOT NULL,
-                    savings REAL NOT NULL,
-                    loans REAL NOT NULL,
-                    income REAL NOT NULL,
-                    expenses REAL NOT NULL,
-                    timestamp TEXT NOT NULL,
-                    synced INTEGER DEFAULT 0
-                )
-            ''')
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS users (
-                    user_id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    phone TEXT,
-                    group_name TEXT,
-                    created_at TEXT NOT NULL
-                )
-            ''')
-            conn.commit()
-            logging.info("Remote PostgreSQL database verified")
-        except psycopg2.Error as e:
-            logging.warning(f"Remote database setup skipped due to error: {e}")
-        finally:
-            conn.close()
+        # Remote Postgres setup only if online
+        if self.is_online:
+            try:
+                conn = psycopg2.connect(self.db_url)
+                cursor = conn.cursor()
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS transactions (
+                        id SERIAL PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        savings REAL NOT NULL,
+                        loans REAL NOT NULL,
+                        income REAL NOT NULL,
+                        expenses REAL NOT NULL,
+                        timestamp TEXT NOT NULL,
+                        synced INTEGER DEFAULT 0
+                    )
+                ''')
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS users (
+                        user_id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        phone TEXT,
+                        group_name TEXT,
+                        created_at TEXT NOT NULL
+                    )
+                ''')
+                conn.commit()
+                logging.info("Remote PostgreSQL database verified")
+            except psycopg2.Error as e:
+                logging.warning(f"Remote database setup skipped due to error: {e}")
+            finally:
+                conn.close()
 
     def calculate_credit_score(self, savings, loans, income, expenses):
         """Calculate credit score using rule-based algorithm"""
@@ -103,7 +114,7 @@ class GrowEasy:
         return max(0, min(100, score))
 
     def add_user(self, user_id, name, phone="", group_name=""):
-        """Add new user to local and remote (if online) database"""
+        """Add new user to local database, sync if online"""
         success = False
         try:
             with sqlite3.connect(self.local_db) as conn:
@@ -119,28 +130,29 @@ class GrowEasy:
             logging.error(f"Local user add error: {e}")
             return False
 
-        try:
-            conn = psycopg2.connect(self.db_url)
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO users (user_id, name, phone, group_name, created_at)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (user_id) DO UPDATE
-                SET name = EXCLUDED.name,
-                    phone = EXCLUDED.phone,
-                    group_name = EXCLUDED.group_name,
-                    created_at = EXCLUDED.created_at
-            ''', (user_id, name, phone, group_name, datetime.now().isoformat()))
-            conn.commit()
-            logging.info(f"User {name} synced to remote for user_id {user_id}")
-        except psycopg2.Error as e:
-            logging.warning(f"Remote user sync failed: {e}")
-        finally:
-            conn.close()
+        if self.is_online:
+            try:
+                conn = psycopg2.connect(self.db_url)
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO users (user_id, name, phone, group_name, created_at)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (user_id) DO UPDATE
+                    SET name = EXCLUDED.name,
+                        phone = EXCLUDED.phone,
+                        group_name = EXCLUDED.group_name,
+                        created_at = EXCLUDED.created_at
+                ''', (user_id, name, phone, group_name, datetime.now().isoformat()))
+                conn.commit()
+                logging.info(f"User {name} synced to remote for user_id {user_id}")
+            except psycopg2.Error as e:
+                logging.warning(f"Remote user sync failed: {e}")
+            finally:
+                conn.close()
         return success
 
     def add_transaction(self, user_id, savings, loans, income, expenses):
-        """Add new transaction to local and remote (if online) database"""
+        """Add new transaction to local database, sync if online"""
         success = False
         try:
             with sqlite3.connect(self.local_db) as conn:
@@ -156,23 +168,24 @@ class GrowEasy:
             logging.error(f"Local transaction add error: {e}")
             return False
 
-        try:
-            conn = psycopg2.connect(self.db_url)
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO transactions (user_id, savings, loans, income, expenses, timestamp)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            ''', (user_id, savings, loans, income, expenses, datetime.now().isoformat()))
-            conn.commit()
-            logging.info(f"Transaction synced to remote for {user_id}")
-        except psycopg2.Error as e:
-            logging.warning(f"Remote transaction sync failed: {e}")
-        finally:
-            conn.close()
+        if self.is_online:
+            try:
+                conn = psycopg2.connect(self.db_url)
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO transactions (user_id, savings, loans, income, expenses, timestamp)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                ''', (user_id, savings, loans, income, expenses, datetime.now().isoformat()))
+                conn.commit()
+                logging.info(f"Transaction synced to remote for {user_id}")
+            except psycopg2.Error as e:
+                logging.warning(f"Remote transaction sync failed: {e}")
+            finally:
+                conn.close()
         return success
 
     def get_user_history(self, user_id):
-        """Get transaction history from local database (offline fallback)"""
+        """Get transaction history from local database"""
         try:
             with sqlite3.connect(self.local_db) as conn:
                 cursor = conn.cursor()
@@ -190,6 +203,9 @@ class GrowEasy:
 
     def simulate_wifi_sync(self):
         """Sync local unsynced transactions to remote database"""
+        if not self.is_online:
+            print("⚠️ No internet connection, sync skipped.")
+            return
         print("\n🔄 Starting Wi-Fi sync simulation...")
         time.sleep(1)
         try:
@@ -233,7 +249,7 @@ class GrowEasy:
         return max(0, min(100, 60 + (new_savings * 0.001)))
 
     def get_status_data(self):
-        """Fetch status data from local database (offline fallback)"""
+        """Fetch status data from local database"""
         try:
             with sqlite3.connect(self.local_db) as conn:
                 cursor = conn.cursor()
