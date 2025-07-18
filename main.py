@@ -3,20 +3,51 @@ import time
 from datetime import datetime
 import psutil
 import psycopg2
+import sqlite3
 from flask import Flask, request, render_template, jsonify
 import logging
 
+# Configure logging
 logging.basicConfig(filename='groweasy.log', level=logging.INFO)
 
 class GrowEasy:
     def __init__(self):
-        """Initialize GrowEasy microfinance app with Postgres"""
-        self.db_url = os.environ.get('DATABASE_URL', 'postgresql://user:password@localhost:5432/groweasy')
-        self.setup_database()
+        """Initialize GrowEasy with SQLite for offline and Postgres for online"""
+        self.db_url = os.environ.get('DATABASE_URL', 'postgresql://groweasy_web_user:DgIu3tONEj7gN7QAyQDPLUo1KkwPpkY8@dpg-d1rvoa6r433s73b875g0-a.oregon-postgres.render.com/groweasy_web')
+        self.local_db = 'groweasy_local.db'
+        self.setup_databases()
         print("✅ GrowEasy initialized successfully")
 
-    def setup_database(self):
-        """Setup PostgreSQL database"""
+    def setup_databases(self):
+        """Setup both local SQLite and remote PostgreSQL databases"""
+        # Local SQLite setup
+        with sqlite3.connect(self.local_db) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS transactions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    savings REAL NOT NULL,
+                    loans REAL NOT NULL,
+                    income REAL NOT NULL,
+                    expenses REAL NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    synced INTEGER DEFAULT 0
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    phone TEXT,
+                    group_name TEXT,
+                    created_at TEXT NOT NULL
+                )
+            ''')
+            conn.commit()
+            logging.info("Local SQLite database initialized")
+
+        # Remote Postgres setup (only if online)
         try:
             conn = psycopg2.connect(self.db_url)
             cursor = conn.cursor()
@@ -42,13 +73,11 @@ class GrowEasy:
                 )
             ''')
             conn.commit()
-            logging.info("Database schema created or verified")
+            logging.info("Remote PostgreSQL database verified")
         except psycopg2.Error as e:
-            logging.error(f"Database setup error: {e}")
-            raise
+            logging.warning(f"Remote database setup skipped due to error: {e}")
         finally:
             conn.close()
-            print("✅ Database initialized successfully")
 
     def calculate_credit_score(self, savings, loans, income, expenses):
         """Calculate credit score using rule-based algorithm"""
@@ -74,7 +103,22 @@ class GrowEasy:
         return max(0, min(100, score))
 
     def add_user(self, user_id, name, phone="", group_name=""):
-        """Add new user to the system"""
+        """Add new user to local and remote (if online) database"""
+        success = False
+        try:
+            with sqlite3.connect(self.local_db) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT OR REPLACE INTO users (user_id, name, phone, group_name, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (user_id, name, phone, group_name, datetime.now().isoformat()))
+                conn.commit()
+                logging.info(f"User {name} added locally for user_id {user_id}")
+                success = True
+        except sqlite3.Error as e:
+            logging.error(f"Local user add error: {e}")
+            return False
+
         try:
             conn = psycopg2.connect(self.db_url)
             cursor = conn.cursor()
@@ -88,16 +132,30 @@ class GrowEasy:
                     created_at = EXCLUDED.created_at
             ''', (user_id, name, phone, group_name, datetime.now().isoformat()))
             conn.commit()
-            logging.info(f"User {name} added successfully for user_id {user_id}")
-            return True
+            logging.info(f"User {name} synced to remote for user_id {user_id}")
         except psycopg2.Error as e:
-            logging.error(f"Error adding user {user_id}: {e}")
-            return False
+            logging.warning(f"Remote user sync failed: {e}")
         finally:
             conn.close()
+        return success
 
     def add_transaction(self, user_id, savings, loans, income, expenses):
-        """Add new transaction to local database"""
+        """Add new transaction to local and remote (if online) database"""
+        success = False
+        try:
+            with sqlite3.connect(self.local_db) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO transactions (user_id, savings, loans, income, expenses, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (user_id, savings, loans, income, expenses, datetime.now().isoformat()))
+                conn.commit()
+                logging.info(f"Transaction added locally for {user_id}")
+                success = True
+        except sqlite3.Error as e:
+            logging.error(f"Local transaction add error: {e}")
+            return False
+
         try:
             conn = psycopg2.connect(self.db_url)
             cursor = conn.cursor()
@@ -106,58 +164,59 @@ class GrowEasy:
                 VALUES (%s, %s, %s, %s, %s, %s)
             ''', (user_id, savings, loans, income, expenses, datetime.now().isoformat()))
             conn.commit()
-            logging.info(f"Transaction added for {user_id}")
-            return True
+            logging.info(f"Transaction synced to remote for {user_id}")
         except psycopg2.Error as e:
-            logging.error(f"Error saving transaction for {user_id}: {e}")
-            return False
+            logging.warning(f"Remote transaction sync failed: {e}")
         finally:
             conn.close()
+        return success
 
     def get_user_history(self, user_id):
-        """Get transaction history for a user"""
+        """Get transaction history from local database (offline fallback)"""
         try:
-            conn = psycopg2.connect(self.db_url)
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT savings, loans, income, expenses, timestamp
-                FROM transactions
-                WHERE user_id = %s
-                ORDER BY timestamp DESC
-                LIMIT 10
-            ''', (user_id,))
-            history = cursor.fetchall()
-            return history
-        except psycopg2.Error as e:
-            logging.error(f"Error fetching history for {user_id}: {e}")
+            with sqlite3.connect(self.local_db) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT savings, loans, income, expenses, timestamp
+                    FROM transactions
+                    WHERE user_id = ?
+                    ORDER BY timestamp DESC
+                    LIMIT 10
+                ''', (user_id,))
+                return cursor.fetchall()
+        except sqlite3.Error as e:
+            logging.error(f"Local history fetch error for {user_id}: {e}")
             return []
-        finally:
-            conn.close()
 
     def simulate_wifi_sync(self):
-        """Simulate Wi-Fi synchronization with cloud server"""
+        """Sync local unsynced transactions to remote database"""
         print("\n🔄 Starting Wi-Fi sync simulation...")
         time.sleep(1)
         try:
-            conn = psycopg2.connect(self.db_url)
-            cursor = conn.cursor()
-            cursor.execute('SELECT COUNT(*) FROM transactions WHERE synced = 0')
-            unsynced_count = cursor.fetchone()[0]
-            if unsynced_count == 0:
-                print("✅ All data is already synced")
-                conn.close()
-                return
-            print(f"📤 Found {unsynced_count} unsynced transactions")
-            for i in range(3):
-                print(f"📡 Syncing... {((i+1)/3)*100:.0f}%")
-                time.sleep(0.5)
-            cursor.execute('UPDATE transactions SET synced = 1 WHERE synced = 0')
-            conn.commit()
-            with open('sync_log.txt', 'a') as f:
-                f.write(f"{datetime.now().isoformat()}: Synced {unsynced_count} transactions\n")
-            print("✅ Sync completed successfully!")
-            print(f"📊 {unsynced_count} transactions uploaded to cloud")
-        except psycopg2.Error as e:
+            with sqlite3.connect(self.local_db) as local_conn:
+                cursor = local_conn.cursor()
+                cursor.execute('SELECT * FROM transactions WHERE synced = 0')
+                unsynced = cursor.fetchall()
+                if not unsynced:
+                    print("✅ All data is already synced")
+                    return
+                print(f"📤 Found {len(unsynced)} unsynced transactions")
+
+                conn = psycopg2.connect(self.db_url)
+                remote_cursor = conn.cursor()
+                for row in unsynced:
+                    remote_cursor.execute('''
+                        INSERT INTO transactions (user_id, savings, loans, income, expenses, timestamp)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                    ''', (row[1], row[2], row[3], row[4], row[5], row[6]))
+                conn.commit()
+                cursor.execute('UPDATE transactions SET synced = 1 WHERE synced = 0')
+                local_conn.commit()
+                print("✅ Sync completed successfully!")
+                print(f"📊 {len(unsynced)} transactions uploaded to cloud")
+                with open('sync_log.txt', 'a') as f:
+                    f.write(f"{datetime.now().isoformat()}: Synced {len(unsynced)} transactions\n")
+        except (sqlite3.Error, psycopg2.Error) as e:
             logging.error(f"Sync error: {e}")
         finally:
             conn.close()
@@ -172,6 +231,35 @@ class GrowEasy:
         """Simulate future credit score based on savings growth"""
         new_savings = savings + (monthly_save * months)
         return max(0, min(100, 60 + (new_savings * 0.001)))
+
+    def get_status_data(self):
+        """Fetch status data from local database (offline fallback)"""
+        try:
+            with sqlite3.connect(self.local_db) as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT COUNT(*) FROM users')
+                user_count = cursor.fetchone()[0]
+                cursor.execute('SELECT COUNT(*) FROM transactions')
+                transaction_count = cursor.fetchone()[0]
+                cursor.execute('SELECT COUNT(*) FROM transactions WHERE synced = 0')
+                unsynced_count = cursor.fetchone()[0]
+                # Approximate local DB size (simplified)
+                cursor.execute('SELECT pgsize_pretty(sum(length(data))) FROM (SELECT group_concat(name || value) as data FROM pragma_table_info(\'transactions\') UNION ALL SELECT group_concat(name || value) FROM pragma_table_info(\'users\'))')
+                db_size = cursor.fetchone()[0] or 'N/A'
+                return {
+                    'user_count': user_count,
+                    'transaction_count': transaction_count,
+                    'unsynced_count': unsynced_count,
+                    'db_size': db_size
+                }
+        except sqlite3.Error as e:
+            logging.error(f"Local status data error: {e}")
+            return {
+                'user_count': 0,
+                'transaction_count': 0,
+                'unsynced_count': 0,
+                'db_size': 'N/A'
+            }
 
 app = Flask(__name__)
 
@@ -229,18 +317,14 @@ def sync():
 @app.route('/status', methods=['GET'])
 def status():
     groweasy = GrowEasy()
+    status_data = groweasy.get_status_data()
     memory_mb = groweasy.get_memory_usage()
-    conn = psycopg2.connect(groweasy.db_url)
-    cursor = conn.cursor()
-    cursor.execute('SELECT COUNT(*) FROM users')
-    user_count = cursor.fetchone()[0]
-    cursor.execute('SELECT COUNT(*) FROM transactions')
-    transaction_count = cursor.fetchone()[0]
-    cursor.execute('SELECT COUNT(*) FROM transactions WHERE synced = 0')
-    unsynced_count = cursor.fetchone()[0]
-    conn.close()
-    db_size = 0  # Postgres size not directly accessible; use Render dashboard
-    return render_template('status.html', memory_mb=memory_mb, user_count=user_count, transaction_count=transaction_count, unsynced_count=unsynced_count, db_size=db_size)
+    return render_template('status.html',
+                           memory_mb=memory_mb,
+                           user_count=status_data['user_count'],
+                           transaction_count=status_data['transaction_count'],
+                           unsynced_count=status_data['unsynced_count'],
+                           db_size=status_data['db_size'])
 
 @app.route('/status_data')
 def status_data():
