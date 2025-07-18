@@ -29,8 +29,7 @@ class GrowEasy:
             return False
 
     def setup_databases(self):
-        """Setup both local SQLite and remote PostgreSQL databases"""
-        # Local SQLite setup
+        """Setup local SQLite database"""
         with sqlite3.connect(self.local_db) as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -57,7 +56,7 @@ class GrowEasy:
             conn.commit()
             logging.info("Local SQLite database initialized")
 
-        # Remote Postgres setup only if online
+        # Remote setup only if online
         if self.is_online:
             try:
                 conn = psycopg2.connect(self.db_url)
@@ -86,7 +85,7 @@ class GrowEasy:
                 conn.commit()
                 logging.info("Remote PostgreSQL database verified")
             except psycopg2.Error as e:
-                logging.warning(f"Remote database setup skipped due to error: {e}")
+                logging.warning(f"Remote database setup skipped: {e}")
             finally:
                 conn.close()
 
@@ -204,8 +203,7 @@ class GrowEasy:
     def simulate_wifi_sync(self):
         """Sync local unsynced transactions to remote database"""
         if not self.is_online:
-            print("⚠️ No internet connection, sync skipped.")
-            return
+            return "⚠️ No internet connection, sync skipped."
         print("\n🔄 Starting Wi-Fi sync simulation...")
         time.sleep(1)
         try:
@@ -214,8 +212,7 @@ class GrowEasy:
                 cursor.execute('SELECT * FROM transactions WHERE synced = 0')
                 unsynced = cursor.fetchall()
                 if not unsynced:
-                    print("✅ All data is already synced")
-                    return
+                    return "✅ All data is already synced"
                 print(f"📤 Found {len(unsynced)} unsynced transactions")
 
                 conn = psycopg2.connect(self.db_url)
@@ -232,8 +229,10 @@ class GrowEasy:
                 print(f"📊 {len(unsynced)} transactions uploaded to cloud")
                 with open('sync_log.txt', 'a') as f:
                     f.write(f"{datetime.now().isoformat()}: Synced {len(unsynced)} transactions\n")
+                return f"Sync completed, {len(unsynced)} transactions uploaded."
         except (sqlite3.Error, psycopg2.Error) as e:
             logging.error(f"Sync error: {e}")
+            return f"Sync failed: {str(e)}"
         finally:
             conn.close()
 
@@ -259,9 +258,9 @@ class GrowEasy:
                 transaction_count = cursor.fetchone()[0]
                 cursor.execute('SELECT COUNT(*) FROM transactions WHERE synced = 0')
                 unsynced_count = cursor.fetchone()[0]
-                # Approximate local DB size (simplified)
-                cursor.execute('SELECT pgsize_pretty(sum(length(data))) FROM (SELECT group_concat(name || value) as data FROM pragma_table_info(\'transactions\') UNION ALL SELECT group_concat(name || value) FROM pragma_table_info(\'users\'))')
-                db_size = cursor.fetchone()[0] or 'N/A'
+                cursor.execute('PRAGMA page_count * page_size')
+                db_size_bytes = cursor.fetchone()[0]
+                db_size = f"{db_size_bytes / 1024:.1f} KB" if db_size_bytes else 'N/A'
                 return {
                     'user_count': user_count,
                     'transaction_count': transaction_count,
@@ -294,7 +293,7 @@ def add_user():
         if groweasy.add_user(user_id, name, phone, group_name):
             return render_template('success.html', message=f"User {name} added successfully!")
         else:
-            return "❌ Error adding user. Check logs.", 500
+            return "❌ Error adding user offline. Data saved locally.", 200
     return render_template('add_user.html')
 
 @app.route('/credit_assessment', methods=['GET', 'POST'])
@@ -327,8 +326,8 @@ def view_history():
 @app.route('/sync', methods=['GET'])
 def sync():
     groweasy = GrowEasy()
-    groweasy.simulate_wifi_sync()
-    return "Sync completed! <a href='/'>Back to Menu</a>"
+    result = groweasy.simulate_wifi_sync()
+    return f"{result} <a href='/'>Back to Menu</a>"
 
 @app.route('/status', methods=['GET'])
 def status():
